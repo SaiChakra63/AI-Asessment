@@ -7,6 +7,7 @@ import com.shortener.model.UrlStats;
 import com.shortener.repository.UrlAnalyticsRepository;
 import com.shortener.repository.UrlMappingRepository;
 import com.shortener.repository.UrlStatsRepository;
+import com.shortener.security.AuthenticatedClient;
 import jakarta.persistence.EntityManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -75,8 +76,6 @@ public class UrlAnalyticsService {
                 .urlMapping(entityManager.getReference(UrlMapping.class, resolvedUrl.mappingId()))
                 .deviceType(metadata.deviceType())
                 .referrer(metadata.referrer())
-                .ipAddress(metadata.clientIp())
-                .userAgent(metadata.userAgent())
                 .city(metadata.city())
                 .country(metadata.country())
                 .continent(metadata.continent())
@@ -86,14 +85,12 @@ public class UrlAnalyticsService {
     }
 
     @Transactional(readOnly = true)
-    public UrlStatsResponse getStats(String shortCode) {
+    public UrlStatsResponse getStats(String shortCode, AuthenticatedClient actor) {
+        UrlMapping mapping = findAuthorizedActiveMapping(shortCode, actor);
         var cached = cacheService.getStats(shortCode);
         if (cached.isPresent()) {
             return cached.get();
         }
-        UrlMapping mapping = urlMappingRepository.findByShortCodeAndActiveTrue(shortCode)
-                .orElseThrow(() -> new com.shortener.exception.UrlNotFoundException(
-                        "No active URL found for short code: " + shortCode));
         UrlStats stats = urlStatsRepository.findByUrlMappingId(mapping.getId())
                 .orElseThrow(() -> new IllegalStateException("URL statistics row is missing"));
         UrlStatsResponse response = new UrlStatsResponse(
@@ -109,6 +106,21 @@ public class UrlAnalyticsService {
         );
         cacheService.putStats(shortCode, response);
         return response;
+    }
+
+    private UrlMapping findAuthorizedActiveMapping(
+            String shortCode,
+            AuthenticatedClient actor
+    ) {
+        if (actor.isAdmin()) {
+            return urlMappingRepository.findByShortCodeAndActiveTrue(shortCode)
+                    .orElseThrow(() -> new com.shortener.exception.UrlNotFoundException(
+                            "No active URL found for short code: " + shortCode));
+        }
+        return urlMappingRepository
+                .findByShortCodeAndActiveTrueAndOwnerClientId(shortCode, actor.clientId())
+                .orElseThrow(() -> new com.shortener.exception.UrlNotFoundException(
+                        "No active URL found for short code: " + shortCode));
     }
 
     private Map<String, Long> toBreakdown(List<Object[]> rows) {

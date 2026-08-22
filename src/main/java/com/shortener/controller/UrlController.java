@@ -5,14 +5,17 @@ import com.shortener.dto.ShortenUrlResponse;
 import com.shortener.service.UrlAnalyticsService;
 import com.shortener.service.RequestMetadataExtractor;
 import com.shortener.service.UrlShorteningService;
+import com.shortener.security.AuthenticatedClient;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -54,8 +57,12 @@ public class UrlController {
 
     @PostMapping("/shorten")
     @Operation(summary = "Create a shortened URL")
-    public ResponseEntity<ShortenUrlResponse> shorten(@Valid @RequestBody ShortenUrlRequest request) {
-        var mapping = urlShorteningService.createShortenedUrl(request);
+    @SecurityRequirement(name = "ApiKeyAuth")
+    public ResponseEntity<ShortenUrlResponse> shorten(
+            @Valid @RequestBody ShortenUrlRequest request,
+            @AuthenticationPrincipal AuthenticatedClient actor
+    ) {
+        var mapping = urlShorteningService.createShortenedUrl(request, actor);
         var response = new ShortenUrlResponse(
                 mapping.getShortCode(),
                 shortBaseUrl + "/" + mapping.getShortCode(),
@@ -85,8 +92,12 @@ public class UrlController {
 
     @DeleteMapping("/{shortCode}")
     @Operation(summary = "Deactivate a shortened URL")
-    public ResponseEntity<Void> delete(@PathVariable String shortCode) {
-        urlShorteningService.deactivate(shortCode);
+    @SecurityRequirement(name = "ApiKeyAuth")
+    public ResponseEntity<Void> delete(
+            @PathVariable String shortCode,
+            @AuthenticationPrincipal AuthenticatedClient actor
+    ) {
+        urlShorteningService.deactivate(shortCode, actor);
         return ResponseEntity.noContent().build();
     }
 }

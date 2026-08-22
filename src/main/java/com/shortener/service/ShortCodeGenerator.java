@@ -32,6 +32,9 @@ public class ShortCodeGenerator {
             SecureRandom secureRandom,
             int codeLength
     ) {
+        if (codeLength < 3 || codeLength > 10) {
+            throw new IllegalArgumentException("Short-code length must be between 3 and 10");
+        }
         this.urlMappingRepository = urlMappingRepository;
         this.secureRandom = secureRandom;
         this.codeLength = codeLength;

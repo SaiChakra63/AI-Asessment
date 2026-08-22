@@ -2,6 +2,7 @@ package com.shortener.controller;
 
 import com.shortener.service.CacheService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,7 @@ public class HealthController {
 
     @GetMapping
     @Operation(summary = "Get application and Redis health")
+    @SecurityRequirement(name = "ApiKeyAuth")
     public ResponseEntity<Map<String, Object>> health() {
         boolean redisHealthy = cacheService.isRedisHealthy();
         boolean databaseHealthy = isDatabaseHealthy();

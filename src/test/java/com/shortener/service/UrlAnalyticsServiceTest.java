@@ -7,15 +7,19 @@ import com.shortener.model.UrlStats;
 import com.shortener.repository.UrlAnalyticsRepository;
 import com.shortener.repository.UrlMappingRepository;
 import com.shortener.repository.UrlStatsRepository;
+import com.shortener.security.AuthenticatedClient;
+import com.shortener.exception.UrlNotFoundException;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -23,11 +27,15 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class UrlAnalyticsServiceTest {
+
+    private static final AuthenticatedClient USER = new AuthenticatedClient(
+            "client-a", java.util.Set.of("ROLE_ANALYTICS_READ"));
 
     private UrlStatsRepository statsRepository;
     private UrlAnalyticsRepository analyticsRepository;
@@ -81,7 +89,10 @@ class UrlAnalyticsServiceTest {
 
         verify(statsRepository).recordAccess(
                 eq(1L), any(LocalDateTime.class), eq(1L), eq(1L), eq(0L), eq(0L));
-        verify(analyticsRepository).save(any(UrlAnalytics.class));
+        ArgumentCaptor<UrlAnalytics> analyticsCaptor = ArgumentCaptor.forClass(UrlAnalytics.class);
+        verify(analyticsRepository).save(analyticsCaptor.capture());
+        assertNull(analyticsCaptor.getValue().getIpAddress());
+        assertNull(analyticsCaptor.getValue().getUserAgent());
         verify(cacheService).invalidateStats("abc123");
     }
 
@@ -96,7 +107,8 @@ class UrlAnalyticsServiceTest {
                 .build();
         when(statsRepository.findByUrlMappingId(1L)).thenReturn(Optional.of(stats));
         when(cacheService.getStats("abc123")).thenReturn(Optional.empty());
-        when(mappingRepository.findByShortCodeAndActiveTrue("abc123")).thenReturn(Optional.of(mapping));
+        when(mappingRepository.findByShortCodeAndActiveTrueAndOwnerClientId("abc123", "client-a"))
+                .thenReturn(Optional.of(mapping));
         when(analyticsRepository.countByDeviceType(1L))
                 .thenReturn(List.<Object[]>of(new Object[]{"Mobile", 2L}, new Object[]{"Desktop", 1L}));
         when(analyticsRepository.countByReferrer(1L))
@@ -104,7 +116,7 @@ class UrlAnalyticsServiceTest {
         when(analyticsRepository.countByCountry(1L))
                 .thenReturn(List.<Object[]>of(new Object[]{"Unknown", 3L}));
 
-        UrlStatsResponse response = service.getStats("abc123");
+        UrlStatsResponse response = service.getStats("abc123", USER);
 
         assertEquals("abc123", response.shortCode());
         assertEquals(3L, response.totalClicks());
@@ -112,6 +124,21 @@ class UrlAnalyticsServiceTest {
         assertEquals(3L, response.referrerBreakdown().get("Direct"));
         assertEquals(3L, response.locationBreakdown().get("Unknown"));
         verify(cacheService).putStats("abc123", response);
+    }
+
+    @Test
+    void checksOwnershipBeforeReadingCachedStatistics() {
+        UrlStatsResponse cached = new UrlStatsResponse(
+                "abc123", "https://example.com", LocalDateTime.now(),
+                10, 5, LocalDateTime.now(), java.util.Map.of(),
+                java.util.Map.of(), java.util.Map.of());
+        when(cacheService.getStats("abc123")).thenReturn(Optional.of(cached));
+        when(mappingRepository.findByShortCodeAndActiveTrueAndOwnerClientId(
+                "abc123", "client-a")).thenReturn(Optional.empty());
+
+        assertThrows(UrlNotFoundException.class, () -> service.getStats("abc123", USER));
+
+        verify(cacheService, never()).getStats("abc123");
     }
 
     @Test
@@ -133,6 +160,7 @@ class UrlAnalyticsServiceTest {
                 .id(1L)
                 .shortCode("abc123")
                 .originalUrl("https://example.com")
+                .ownerClientId("client-a")
                 .createdAt(LocalDateTime.now())
                 .active(true)
                 .build();

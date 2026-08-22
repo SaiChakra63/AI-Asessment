@@ -16,6 +16,7 @@ public interface UrlStatsRepository extends JpaRepository<UrlStats, Long> {
     @Modifying(clearAutomatically = true)
     @Query("update UrlStats s set s.clickCount = s.clickCount + 1, "
             + "s.lastAccessed = :accessedAt, "
+            + "s.updatedAt = :accessedAt, "
             + "s.uniqueVisitors = s.uniqueVisitors + :uniqueVisitorDelta, "
             + "s.mobileClicks = s.mobileClicks + :mobileDelta, "
             + "s.desktopClicks = s.desktopClicks + :desktopDelta, "

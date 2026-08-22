@@ -67,8 +67,4 @@ public class UrlStats {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    public void incrementClickCount() {
-        clickCount++;
-        lastAccessed = LocalDateTime.now();
-    }
 }

@@ -16,6 +16,11 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 
+/**
+ * Applies a Redis-backed fixed-window limit to a hashed client identifier.
+ * The current availability policy is deliberately fail-open when Redis cannot
+ * be reached; failures are counted and logged for operational alerting.
+ */
 @Service
 public class RateLimitService {
 
@@ -36,6 +41,12 @@ public class RateLimitService {
             @Value("${app.rate-limit.window:1m}") Duration window,
             MeterRegistry meterRegistry
     ) {
+        if (capacity < 1) {
+            throw new IllegalArgumentException("Rate-limit capacity must be positive");
+        }
+        if (window == null || window.isZero() || window.isNegative()) {
+            throw new IllegalArgumentException("Rate-limit window must be positive");
+        }
         this.redisTemplate = redisTemplate;
         this.enabled = enabled;
         this.capacity = capacity;

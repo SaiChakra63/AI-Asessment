@@ -7,6 +7,7 @@ import com.shortener.exception.UrlNotFoundException;
 import com.shortener.model.UrlMapping;
 import com.shortener.model.UrlStats;
 import com.shortener.repository.UrlMappingRepository;
+import com.shortener.security.AuthenticatedClient;
 import com.shortener.util.UrlValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +36,10 @@ public class UrlShorteningService {
     }
 
     @Transactional
-    public UrlMapping createShortenedUrl(ShortenUrlRequest request) {
+    public UrlMapping createShortenedUrl(
+            ShortenUrlRequest request,
+            AuthenticatedClient actor
+    ) {
         String originalUrl = request.originalUrl().trim();
         if (!urlValidator.isValid(originalUrl)) {
             throw new InvalidUrlException(
@@ -46,6 +50,7 @@ public class UrlShorteningService {
         UrlMapping mapping = UrlMapping.builder()
                 .shortCode(shortCode)
                 .originalUrl(originalUrl)
+                .ownerClientId(actor.clientId())
                 .active(true)
                 .build();
         mapping.attachStats(UrlStats.builder().clickCount(0).build());
@@ -55,7 +60,7 @@ public class UrlShorteningService {
         return saved;
     }
 
-    @Transactional(readOnly = true)
+    /** Resolves the redirect fast path from Redis and consults PostgreSQL only on a miss. */
     public ResolvedUrl resolveActiveUrl(String shortCode) {
         return cacheService.getUrl(shortCode).orElseGet(() -> {
             UrlMapping mapping = getActiveMapping(shortCode);
@@ -72,11 +77,25 @@ public class UrlShorteningService {
     }
 
     @Transactional
-    public void deactivate(String shortCode) {
-        UrlMapping mapping = getActiveMapping(shortCode);
+    public void deactivate(String shortCode, AuthenticatedClient actor) {
+        UrlMapping mapping = getAuthorizedActiveMapping(shortCode, actor);
         mapping.setActive(false);
         urlMappingRepository.save(mapping);
         afterCommitExecutor.execute(() -> cacheService.invalidate(shortCode));
+    }
+
+    @Transactional(readOnly = true)
+    public UrlMapping getAuthorizedActiveMapping(
+            String shortCode,
+            AuthenticatedClient actor
+    ) {
+        if (actor.isAdmin()) {
+            return getActiveMapping(shortCode);
+        }
+        return urlMappingRepository
+                .findByShortCodeAndActiveTrueAndOwnerClientId(shortCode, actor.clientId())
+                .orElseThrow(() -> new UrlNotFoundException(
+                        "No active URL found for short code: " + shortCode));
     }
 
     private String chooseShortCode(String customCode) {
@@ -84,7 +103,8 @@ public class UrlShorteningService {
             return shortCodeGenerator.generateUniqueShortCode();
         }
         if (urlMappingRepository.existsByShortCode(customCode)) {
-            throw new ShortCodeAlreadyExistsException("Custom short code is already in use");
+            throw new ShortCodeAlreadyExistsException(
+                    "Custom short code is already in use; choose another value");
         }
         return customCode;
     }

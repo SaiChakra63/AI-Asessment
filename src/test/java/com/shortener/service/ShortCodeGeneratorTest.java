@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.security.SecureRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -37,5 +38,15 @@ class ShortCodeGeneratorTest {
         String code = new ShortCodeGenerator(repository, random, 6).generateUniqueShortCode();
 
         assertEquals("aaaaaa", code);
+    }
+
+    @Test
+    void rejectsLengthOutsideDatabaseConstraint() {
+        UrlMappingRepository repository = mock(UrlMappingRepository.class);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new ShortCodeGenerator(repository, new SecureRandom(), 2));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ShortCodeGenerator(repository, new SecureRandom(), 11));
     }
 }

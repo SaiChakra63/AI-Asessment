@@ -5,6 +5,7 @@ import com.shortener.exception.InvalidUrlException;
 import com.shortener.exception.ShortCodeAlreadyExistsException;
 import com.shortener.model.UrlMapping;
 import com.shortener.repository.UrlMappingRepository;
+import com.shortener.security.AuthenticatedClient;
 import com.shortener.util.UrlValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,9 @@ import static org.mockito.Mockito.when;
 import java.util.Optional;
 
 class UrlShorteningServiceTest {
+
+    private static final AuthenticatedClient USER = new AuthenticatedClient(
+            "client-a", java.util.Set.of("ROLE_URL_WRITE", "ROLE_ANALYTICS_READ"));
 
     private UrlMappingRepository repository;
     private ShortCodeGenerator generator;
@@ -56,10 +60,11 @@ class UrlShorteningServiceTest {
         when(generator.generateUniqueShortCode()).thenReturn("abc123");
 
         UrlMapping mapping = service.createShortenedUrl(
-                new ShortenUrlRequest("https://example.com/a/long/path", null));
+                new ShortenUrlRequest("https://example.com/a/long/path", null), USER);
 
         assertEquals("abc123", mapping.getShortCode());
         assertEquals("https://example.com/a/long/path", mapping.getOriginalUrl());
+        assertEquals("client-a", mapping.getOwnerClientId());
         assertTrue(mapping.isActive());
         assertNotNull(mapping.getStats());
         assertEquals(0L, mapping.getStats().getClickCount());
@@ -71,7 +76,8 @@ class UrlShorteningServiceTest {
     void rejectsInvalidUrl() {
         assertThrows(
                 InvalidUrlException.class,
-                () -> service.createShortenedUrl(new ShortenUrlRequest("not-a-url", null))
+                () -> service.createShortenedUrl(
+                        new ShortenUrlRequest("not-a-url", null), USER)
         );
     }
 
@@ -82,7 +88,7 @@ class UrlShorteningServiceTest {
         assertThrows(
                 ShortCodeAlreadyExistsException.class,
                 () -> service.createShortenedUrl(
-                        new ShortenUrlRequest("https://example.com/valid", "custom1"))
+                        new ShortenUrlRequest("https://example.com/valid", "custom1"), USER)
         );
     }
 
@@ -97,9 +103,10 @@ class UrlShorteningServiceTest {
     @Test
     void deactivatesAnExistingMapping() {
         UrlMapping mapping = UrlMapping.builder().shortCode("abc123").active(true).build();
-        when(repository.findByShortCodeAndActiveTrue("abc123")).thenReturn(Optional.of(mapping));
+        when(repository.findByShortCodeAndActiveTrueAndOwnerClientId("abc123", "client-a"))
+                .thenReturn(Optional.of(mapping));
 
-        service.deactivate("abc123");
+        service.deactivate("abc123", USER);
 
         assertTrue(!mapping.isActive());
         verify(repository).save(mapping);

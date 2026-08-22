@@ -9,8 +9,6 @@ import java.util.List;
 
 public interface UrlAnalyticsRepository extends JpaRepository<UrlAnalytics, Long> {
 
-    List<UrlAnalytics> findByUrlMappingId(Long urlMappingId);
-
     @Query("select coalesce(a.deviceType, 'Unknown'), count(a) from UrlAnalytics a "
             + "where a.urlMapping.id = :urlId group by a.deviceType")
     List<Object[]> countByDeviceType(@Param("urlId") Long urlId);

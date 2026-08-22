@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gitattributes
+.env
+.env.*
+!.env.example
+.idea
+.vscode
+target
+backups
+*.log
+docs/CODEX_CONVERSATION_TRANSCRIPT.txt
+README*.txt

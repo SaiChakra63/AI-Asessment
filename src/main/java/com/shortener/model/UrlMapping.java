@@ -37,6 +37,9 @@ public class UrlMapping {
     @Column(name = "original_url", nullable = false, columnDefinition = "TEXT")
     private String originalUrl;
 
+    @Column(name = "owner_client_id", nullable = false, updatable = false, length = 100)
+    private String ownerClientId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

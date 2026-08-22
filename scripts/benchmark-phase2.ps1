@@ -2,13 +2,19 @@ param(
     [string]$BaseUrl = "http://localhost:8080",
     [string]$ShortCode = "phase2bench",
     [int]$WarmupRequests = 10,
-    [int]$Iterations = 50
+    [int]$Iterations = 50,
+    [string]$ApiKey = $env:APP_BOOTSTRAP_API_KEY
 )
+
+if ([string]::IsNullOrWhiteSpace($ApiKey)) {
+    throw "Set APP_BOOTSTRAP_API_KEY or pass -ApiKey before running this benchmark."
+}
 
 $handler = [System.Net.Http.HttpClientHandler]::new()
 $handler.AllowAutoRedirect = $false
 $client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromSeconds(10)
+$client.DefaultRequestHeaders.Add("X-API-Key", $ApiKey)
 
 try {
     $payload = [System.Net.Http.StringContent]::new(

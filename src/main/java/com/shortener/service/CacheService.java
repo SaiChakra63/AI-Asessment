@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Optional;
 
+/**
+ * Best-effort Redis cache for redirects and statistics. Cache failures fall
+ * back to PostgreSQL and are surfaced through the cache-failure metric.
+ */
 @Service
 public class CacheService {
 
@@ -40,6 +44,10 @@ public class CacheService {
             @Value("${app.cache.stats-ttl:1h}") Duration statsTtl,
             MeterRegistry meterRegistry
     ) {
+        if (urlTtl == null || urlTtl.isZero() || urlTtl.isNegative()
+                || statsTtl == null || statsTtl.isZero() || statsTtl.isNegative()) {
+            throw new IllegalArgumentException("Cache TTL values must be positive");
+        }
         this.redisTemplate = redisTemplate;
         this.connectionFactory = connectionFactory;
         this.objectMapper = objectMapper;
@@ -57,8 +65,9 @@ public class CacheService {
                 urlMisses.increment();
                 return Optional.empty();
             }
+            ResolvedUrl resolvedUrl = objectMapper.readValue(value, ResolvedUrl.class);
             urlHits.increment();
-            return Optional.of(objectMapper.readValue(value, ResolvedUrl.class));
+            return Optional.of(resolvedUrl);
         } catch (RuntimeException | JsonProcessingException exception) {
             recordFailure("read URL", shortCode, exception);
             return Optional.empty();
