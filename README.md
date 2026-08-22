@@ -9,8 +9,10 @@ disaster-recovery work.
 - Create a generated or custom short code.
 - Redirect with HTTP `302 Found`.
 - Soft-delete (deactivate) a short URL.
-- Record clicks and bounded device/referrer/location metadata; use an HMAC
-  visitor identifier instead of persisting raw IP or user-agent values.
+- Record clicks, unique visitors, and bounded device/referrer/location metadata.
+- Use an HMAC visitor identifier for repeat-visitor counting. The current
+  assessment implementation also stores request IP and user-agent metadata;
+  production deployments must apply an explicit retention/privacy policy.
 - Retrieve per-URL analytics.
 - Validate requests and return stable JSON errors.
 - Manage PostgreSQL schema through Flyway.
@@ -19,7 +21,7 @@ disaster-recovery work.
 ## Phase 2 additions
 
 - Redis cache-aside lookup for the redirect critical path, with bounded TTLs.
-- Safe database fallback when Redis is unavailable.
+- Safe database fallback if Redis becomes unavailable after application startup.
 - Atomic Redis-backed per-client rate limiting across application instances.
 - Unique-visitor and device/location/referrer analytics.
 - Cache invalidation after committed writes.
@@ -45,15 +47,69 @@ disaster-recovery work.
 
 ## Run with Docker Compose
 
+For the first startup, create a local `.env` file before starting the stack.
+The following PowerShell commands generate different random values for every
+secret and write the configuration expected by `docker-compose.yml`:
+
 ```powershell
-Copy-Item .env.example .env
-# Replace every placeholder and fill the intentionally blank API_KEY_PEPPER
-# and APP_BOOTSTRAP_API_KEY with two different high-entropy values.
-docker compose up --build
+function New-LocalSecret {
+    (New-Guid).ToString('N') + (New-Guid).ToString('N')
+}
+
+$dbPassword = New-LocalSecret
+$visitorSalt = New-LocalSecret
+$apiKeyPepper = New-LocalSecret
+$bootstrapApiKey = New-LocalSecret
+$grafanaPassword = New-LocalSecret
+
+@"
+POSTGRES_DB=urlshortener
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=$dbPassword
+TRUST_FORWARDED_HEADERS=false
+TRUSTED_PROXY_ADDRESSES=
+TRUST_GEO_HEADERS=false
+VISITOR_HASH_SALT=$visitorSalt
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_CAPACITY=100
+RATE_LIMIT_WINDOW=1m
+API_KEY_PEPPER=$apiKeyPepper
+APP_BOOTSTRAP_API_KEY=$bootstrapApiKey
+APP_API_CLIENT_ID=local-assessment-client
+APP_API_CLIENT_DISPLAY_NAME=Local assessment client
+APP_API_CLIENT_AUTHORITIES=URL_WRITE,ANALYTICS_READ,OPS_READ
+APP_API_CLIENT_UPDATE_EXISTING=false
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=$grafanaPassword
+"@ | Set-Content -Encoding ascii .env
+
+docker compose up -d --build
 ```
 
 Docker Compose automatically reads `.env` from this project directory. The file
-is ignored by Git; `.env.example` documents names without storing real secrets.
+is ignored by Git and must never be committed. Compose passes `POSTGRES_DB`,
+`POSTGRES_USER`, and `POSTGRES_PASSWORD` to both PostgreSQL and the Spring Boot
+container, so the application uses the same credentials as the database.
+`POSTGRES_PASSWORD`, `VISITOR_HASH_SALT`, and `GRAFANA_ADMIN_PASSWORD` are
+required; Compose stops with a clear error if any of them is missing.
+
+Create this file only once for an existing local stack. The PostgreSQL image
+uses `POSTGRES_PASSWORD` when it initializes a new `postgres_data` volume; merely
+changing that value later does not change the password inside an existing
+database. Rotate an existing database password with PostgreSQL administration,
+then update `.env` to the same value.
+
+The generated `$bootstrapApiKey` is the value to use as `X-API-Key` in Postman.
+You can retrieve it later from the local `.env` file. Never paste the
+`API_KEY_PEPPER` into an API request; it is a server-side secret used only when
+hashing API keys.
+
+On the first startup, the bootstrap runner stores the API-key digest and client
+authorities in PostgreSQL. On normal restarts,
+`APP_API_CLIENT_UPDATE_EXISTING=false` prevents an existing client from being
+silently reactivated or overwritten. For an intentional key rotation, set it to
+`true` for one controlled application restart, verify the new key, then return
+it to `false`.
 
 After changing API-key settings, rebuild/restart the application:
 
@@ -77,9 +133,10 @@ to `APP_BOOTSTRAP_API_KEY` for protected endpoints. The redirect endpoint stays
 public so a visitor can open a short link without an account.
 
 Prometheus and Grafana are provisioned from `monitoring/`. In Grafana, open
-**Dashboards -> URL Shortener -> URL Shortener - Phase 2 Overview**. See the
-[monitoring dashboard beginner guide](docs/PHASE2_MONITORING_DASHBOARD_BEGINNER_GUIDE.md)
-for the data flow and troubleshooting steps.
+**Dashboards -> URL Shortener -> URL Shortener - Phase 2 Overview**. Prometheus
+scrapes Spring Boot metrics from `/actuator/prometheus`; Grafana queries the
+provisioned Prometheus data source and renders the dashboard JSON stored under
+`monitoring/grafana/dashboards/`.
 
 ## Run locally
 
@@ -99,9 +156,9 @@ docker compose up -d postgres redis
 mvn spring-boot:run
 ```
 
-When Spring Boot is outside Compose, set the datasource credentials and API
-secrets in that PowerShell session. Use the same database values you placed in
-your local `.env`:
+When Spring Boot runs outside Compose, it does not automatically read `.env`.
+Set the datasource credentials and application secrets in that PowerShell
+session, using the same values contained in the local `.env`:
 
 ```powershell
 $env:SPRING_DATASOURCE_URL = 'jdbc:postgresql://localhost:5432/urlshortener'
@@ -113,9 +170,9 @@ $env:APP_BOOTSTRAP_API_KEY = '<a different value of at least 32 random bytes>'
 mvn spring-boot:run
 ```
 
-Values in `.env` are read by Docker Compose; Spring Boot itself does not
-automatically read `.env`. This is why the variables must be set again when the
-Java process runs directly from VS Code or PowerShell.
+The three `SPRING_DATASOURCE_*` variables are the Spring equivalents of the
+Compose `POSTGRES_*` values. They are passed automatically only when the
+application is launched by Docker Compose.
 
 Run tests:
 
@@ -177,24 +234,7 @@ Restore a selected backup only into a new database (never over the source):
   -TargetDatabase urlshortener_restore_test
 ```
 
-Read [the disaster-recovery runbook](docs/PHASE3_DISASTER_RECOVERY.md) before
-running a restore. The script never performs automatic live cutover.
-
-## Assessment evidence
-
-- [Section 5 deliverables index](docs/ASSESSMENT_DELIVERABLES.md)
-- [Phase 1 engineering record](docs/PHASE1_ENGINEERING_RECORD.md)
-- [Phase 1 baseline](docs/PHASE1_BASELINE.md)
-- [Phase 2 engineering record](docs/PHASE2_ENGINEERING_RECORD.md)
-- [Phase 1 to Phase 2 changeset](docs/PHASE1_TO_PHASE2_CHANGESET.md)
-- [Phase 2 architecture](docs/PHASE2_ARCHITECTURE.md)
-- [Phase 2 testing and benchmarks](docs/PHASE2_TESTING_AND_BENCHMARKS.md)
-- [Phase 3 security and authorization](docs/PHASE3_SECURITY_AND_AUTHORIZATION.md)
-- [Phase 3 disaster-recovery runbook](docs/PHASE3_DISASTER_RECOVERY.md)
-- [Phase 2 to Phase 3 changeset](docs/PHASE2_TO_PHASE3_CHANGESET.md)
-- [Phase 3 engineering record](docs/PHASE3_ENGINEERING_RECORD.md)
-- [Final submission peer review](docs/FINAL_SUBMISSION_PEER_REVIEW.md)
-
-The numbered `.txt` assessment artifacts provide the broader plan. The files in
-`docs/` record what the runnable implementation actually does and the evidence
-required before making optimization, scaling, or recovery claims.
+The restore script targets a separately named database and never performs an
+automatic live cutover. Backups written to the local `backups/` directory are
+ignored by Git. For production, store encrypted backups off-host and validate
+recovery through scheduled restore drills.
