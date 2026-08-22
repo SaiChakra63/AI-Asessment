@@ -10,9 +10,9 @@ disaster-recovery work.
 - Redirect with HTTP `302 Found`.
 - Soft-delete (deactivate) a short URL.
 - Record clicks, unique visitors, and bounded device/referrer/location metadata.
-- Use an HMAC visitor identifier for repeat-visitor counting. The current
-  assessment implementation also stores request IP and user-agent metadata;
-  production deployments must apply an explicit retention/privacy policy.
+- Use an HMAC visitor identifier for repeat-visitor counting. The current write
+  path does not populate the nullable legacy IP/user-agent analytics columns;
+  production deployments must still apply an explicit retention/privacy policy.
 - Retrieve per-URL analytics.
 - Validate requests and return stable JSON errors.
 - Manage PostgreSQL schema through Flyway.
