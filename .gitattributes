@@ -1,0 +1,17 @@
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Cross-platform source and configuration files use LF in the repository.
+*.java text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.properties text eol=lf
+*.sql text eol=lf
+*.md text eol=lf
+Dockerfile text eol=lf
+
+# Keep Windows PowerShell scripts native when checked out on Windows.
+*.ps1 text eol=crlf

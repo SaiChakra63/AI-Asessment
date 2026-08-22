@@ -1,0 +1,12 @@
+target/
+.env
+*.log
+/backups/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local notes and documentation excluded from the remote submission.
+/docs/
+*.txt
