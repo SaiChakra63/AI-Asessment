@@ -45,6 +45,22 @@ disaster-recovery work.
 - Maven 3.9+
 - Docker Desktop (for PostgreSQL, Redis, Prometheus, Grafana, and integration tests)
 
+## Spring profiles
+
+Configuration is separated by environment:
+
+| File | Purpose |
+|---|---|
+| `application.properties` | Settings shared by every environment |
+| `application-dev.properties` | Local development and Docker Compose defaults |
+| `application-prod.properties` | Production settings with no database or secret defaults |
+| `src/test/resources/application-test.properties` | Test-only settings; not packaged in the production application |
+
+No profile is selected in the shared file. Docker Compose explicitly sets
+`SPRING_PROFILES_ACTIVE=dev`, integration tests use `test`, and a production
+deployment must explicitly set `SPRING_PROFILES_ACTIVE=prod`. This prevents a
+production deployment from silently inheriting local-development values.
+
 ## Run with Docker Compose
 
 For the first startup, create a local `.env` file before starting the stack.
@@ -153,6 +169,7 @@ running Spring Boot locally:
 
 ```powershell
 docker compose up -d postgres redis
+$env:SPRING_PROFILES_ACTIVE = 'dev'
 mvn spring-boot:run
 ```
 
@@ -179,6 +196,17 @@ Run tests:
 ```powershell
 mvn clean test
 ```
+
+For production, inject all required values through the deployment platform's
+secret/configuration mechanism and activate the profile explicitly:
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = 'prod'
+java -jar target/url-shortener-1.0.0.jar
+```
+
+The production profile intentionally fails startup when required database,
+Redis, public-base-URL, visitor-salt, or API-key-pepper values are absent.
 
 If Docker is unavailable, Testcontainers integration tests are skipped while
 unit tests still run.
